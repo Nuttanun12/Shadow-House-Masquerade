@@ -392,3 +392,50 @@ class BabyRevealDialog(QDialog):
         ok.setStyleSheet("background:#c084f5; color:black; font-weight:bold; border-radius:10px;")
         ok.clicked.connect(self.accept)
         lay.addWidget(ok)
+
+
+class TargetDialog(QDialog):
+    """Pick a target player (Detective, Sheriff, Swap, etc.)"""
+    def __init__(self, players, exclude_index=0, parent=None):
+        super().__init__(parent)
+        self.selected_index = None
+        self.setWindowTitle("Select Target")
+        self.setModal(True)
+        self.setMinimumWidth(350)
+        self.setStyleSheet(_STYLE)
+        
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 20, 20, 20)
+        lay.setSpacing(10)
+        
+        title = QLabel("🎯  Choose your target:")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffd700; margin-bottom: 5px;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(title)
+        
+        for i, p in enumerate(players):
+            if i == exclude_index:
+                continue
+            
+            # Simple button for each player
+            btn = QPushButton(f"👤  {p.name}")
+            btn.setFixedHeight(50)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: #1a0030; color: white; border: 1px solid #9040c0; 
+                    border-radius: 8px; font-size: 14px; font-weight: bold;
+                }
+                QPushButton:hover { background: #3d0070; border: 1px solid #c084f5; }
+            """)
+            btn.clicked.connect(lambda _, x=i: self._select(x))
+            lay.addWidget(btn)
+            
+        cancel = QPushButton("Cancel")
+        cancel.setFixedHeight(40)
+        cancel.setStyleSheet("background:transparent; color:#888; border:none; margin-top:10px;")
+        cancel.clicked.connect(self.reject)
+        lay.addWidget(cancel)
+
+    def _select(self, idx):
+        self.selected_index = idx
+        self.accept()
