@@ -17,20 +17,22 @@ class GameEngine:
       4. Culprit plays their Culprit card as their very last card
     """
 
-    def __init__(self, player_names: list[str], ai_count: int = 0):
-        self.players: list[Player] = [Player(name) for name in player_names]
+    def __init__(self, player_names: list[str], ai_count: int = 3):
+        self.players = [Player(name) for name in player_names]
         for i in range(ai_count):
-            self.players.append(Player(f"AI {i + 1}", is_ai=True))
-
+            self.players.append(Player(f"AI {i+1}", is_ai=True))
+        
         self.deck: list[Card] = []
         self.discard_pile: list[Card] = []
-        self.handcuffs_owner: int | None = None   # index of player with handcuffs token
-        self.current_turn_index: int = 0
-        self.round_number: int = 1
-        self.game_over: bool = False
-        self.winner: Player | None = None
         self.logs: list[str] = []
-        self.fos_must_play: bool = False  # True until First on Scene is placed
+        self.round_number = 0
+        self.current_turn_index = 0
+        self.game_over = False
+        self.winner = None
+        
+        self.fos_must_play = False
+        self.handcuffs_owner = None
+        self.last_swap_received = None # For UI popup after Swap card
 
     # ------------------------------------------------------------------
     # Logging
@@ -346,7 +348,13 @@ class GameEngine:
             c2 = target.hand.pop(their_idx)
             player.add_card(c2)
             target.add_card(c1)
-            self.log(f"🔄 {player.name} and {target.name} swapped cards.")
+            
+            self.log(f"🔄 {player.name} gave '{c1.name}' to {target.name} and received '{c2.name}'.")
+            
+            # Store swap result for UI notification
+            if player_index == 0:
+                self.last_swap_received = c2.name
+            
             return "CONTINUE"
 
         # ── Share ────────────────────────────────────────────────────────
@@ -569,8 +577,14 @@ class GameEngine:
             extra["accomplice_card_idx"] = 0
         if card.role_type == RoleType.SWAP and target_idx is not None:
             t = self.players[target_idx]
-            extra["swap_their_idx"] = 0
+            # AI picks which card to give (randomly for now)
+            extra["swap_their_idx"] = random.randint(0, max(0, len(t.hand) - 1))
+            # AI picks which of its own cards to give (usually first non-culprit)
             extra["swap_my_idx"]    = 0
+            for i, c in enumerate(player.hand):
+                if c.role_type != RoleType.CULPRIT:
+                    extra["swap_my_idx"] = i
+                    break
         if card.role_type == RoleType.SHARE:
             extra["share_card_idx"] = 0
         if card.role_type == RoleType.FRENZY:
@@ -622,4 +636,4 @@ class GameEngine:
         c2 = t.hand.pop(their_card_idx)
         p.add_card(c2)
         t.add_card(c1)
-        self.log(f"👁️ Witness swapped a card with {t.name}.")
+        self.log(f"👁️ Witness swap: {p.name} gave '{c1.name}' to {t.name} and received '{c2.name}'.")

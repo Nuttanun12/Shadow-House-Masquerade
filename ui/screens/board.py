@@ -14,63 +14,13 @@ from game.models import RoleType
 from ..components.card import CardWidget
 from ..components.dialogs import (
     TobySnoopDialog, WitnessSwapDialog, PickHandCardDialog,
-    SoothsayerDialog, BabyRevealDialog
+    SoothsayerDialog, BabyRevealDialog, TargetDialog
 )
 
 
 # ---------------------------------------------------------------------------
-# Target selection dialog
+# Board Screen
 # ---------------------------------------------------------------------------
-
-class TargetDialog(QDialog):
-    def __init__(self, players, exclude_index: int, parent=None):
-        super().__init__(parent)
-        self.selected_index = None
-        self.setWindowTitle("Choose a Target")
-        self.setModal(True)
-        self.setFixedSize(320, 300)
-        self.setStyleSheet("""
-            QDialog { background-color: #0d0020; border: 2px solid #7b00bb; border-radius: 12px; }
-            QLabel { color: #e0c0ff; }
-            QPushButton {
-                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #5a0090,stop:1 #3a0060);
-                color: #fff; border: 1px solid #9040c0; border-radius: 8px;
-                padding: 10px 20px; font-size: 13px; font-weight: bold; margin: 3px 10px;
-            }
-            QPushButton:hover { background: #7a00c0; }
-        """)
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(8)
-        title = QLabel("🎯  Select Your Target")
-        title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
-        layout.addWidget(self._sep())
-
-        for i, player in enumerate(players):
-            if i == exclude_index:
-                continue
-            parts = []
-            if player.has_handcuffs:   parts.append("🔒 Cuffed")
-            if player.servant_protected or player.housekeeper_protected: parts.append("🛡️ Protected")
-            suffix = "  [" + ", ".join(parts) + "]" if parts else ""
-            btn = QPushButton(player.name + suffix)
-            btn.clicked.connect(lambda _, idx=i: self._select(idx))
-            layout.addWidget(btn)
-
-        layout.addStretch()
-        cancel = QPushButton("✖  Cancel")
-        cancel.setStyleSheet("background: #330000; border-color: #880000;")
-        cancel.clicked.connect(self.reject)
-        layout.addWidget(cancel)
-
-    def _sep(self):
-        f = QFrame(); f.setFrameShape(QFrame.Shape.HLine)
-        f.setStyleSheet("color: #5a0090;"); return f
-
-    def _select(self, index: int):
-        self.selected_index = index; self.accept()
 
 
 # ---------------------------------------------------------------------------
@@ -353,10 +303,19 @@ class BoardScreen(QWidget):
         header.addWidget(self.turn_label)
         header.addStretch()
 
-        menu_btn = QPushButton("⬅  Menu")
+        fs_btn = QPushButton("📺  FULLSCREEN")
+        fs_btn.setFixedWidth(110)
+        fs_btn.setStyleSheet("""
+            QPushButton { background:rgba(60,0,100,0.6); color:white; border-radius:4px; font-size:10px; font-weight:bold; }
+            QPushButton:hover { background:rgba(80,0,140,0.8); }
+        """)
+        fs_btn.clicked.connect(self.main_window.toggle_fullscreen)
+        header.addWidget(fs_btn)
+
+        menu_btn = QPushButton("🚪  EXIT")
+        menu_btn.setFixedWidth(80)
         menu_btn.setStyleSheet("""
-            QPushButton { background:rgba(60,0,0,0.7); color:#ff8080;
-                border:1px solid #880000; border-radius:6px; padding:6px 14px; }
+            QPushButton { background:rgba(80,0,0,0.7); color:white; border-radius:4px; font-size:10px; font-weight:bold; }
             QPushButton:hover { background:rgba(120,0,0,0.85); }
         """)
         menu_btn.clicked.connect(self._confirm_quit)
@@ -670,8 +629,14 @@ class BoardScreen(QWidget):
             real_idx = other_cards[dlg4.chosen_idx][0]
             # play_card will pop swap_card_pos first, so indices above it shift down by 1
             adjusted_idx = real_idx - 1 if real_idx > swap_card_pos else real_idx
-            extra["swap_my_idx"]    = adjusted_idx
-            extra["swap_their_idx"] = 0  # AI target picks its card automatically
+            
+            extra["swap_my_idx"] = adjusted_idx
+            # Target (AI) "chooses" a random card to give you
+            target_p = self.engine.players[target_idx]
+            if target_p.hand:
+                extra["swap_their_idx"] = random.randint(0, len(target_p.hand) - 1)
+            else:
+                extra["swap_their_idx"] = 0
 
         # SOOTHSAYER: enter text
         if card.role_type == RoleType.SOOTHSAYER:
@@ -685,7 +650,16 @@ class BoardScreen(QWidget):
         if card.role_type == RoleType.WITNESS and target_idx is not None:
             witness_target = self.engine.players[target_idx]
 
+        # Reset swap notification tracker
+        self.engine.last_swap_received = None
+
         result = self.engine.play_card(0, card_widget.index, target_idx, extra)
+
+        # Show notification if a Swap card gave us something new
+        if self.engine.last_swap_received:
+            QMessageBox.information(self, "🔄 Card Swapped", 
+                                   f"You received a **{self.engine.last_swap_received}**!")
+            self.engine.last_swap_received = None
 
         # WITNESS: show hand, optionally swap
         if result == "WITNESS" and witness_target is not None:

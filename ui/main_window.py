@@ -68,7 +68,14 @@ class MainWindow(QMainWindow):
         self.db_manager = db_manager
 
         self.setWindowTitle("Shadow House: Masquerade")
-        self.setFixedSize(1100, 750)
+        self.setMinimumSize(1100, 750)
+        self.resize(1100, 750)
+        
+        # Center the window on screen
+        screen_geo = QApplication.primaryScreen().availableGeometry()
+        self.move((screen_geo.width() - self.width()) // 2,
+                  (screen_geo.height() - self.height()) // 2)
+        
         self.setStyleSheet(APP_STYLESHEET)
 
         # Verify required resources exist
@@ -103,6 +110,25 @@ class MainWindow(QMainWindow):
     def show_stats(self):
         self.stats_screen.refresh_data()
         self.central_widget.setCurrentWidget(self.stats_screen)
+
+    # ------------------------------------------------------------------
+    # Shortcuts & Window Management
+    # ------------------------------------------------------------------
+
+    def keyPressEvent(self, event):
+        """Handle global keyboard shortcuts."""
+        if event.key() == Qt.Key.Key_F11:
+            self.toggle_fullscreen()
+        elif event.key() == Qt.Key.Key_Escape:
+            if self.isFullScreen():
+                self.showNormal()
+        super().keyPressEvent(event)
+
+    def toggle_fullscreen(self):
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
 
     # ------------------------------------------------------------------
     # Helpers
