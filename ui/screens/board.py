@@ -604,14 +604,25 @@ class BoardScreen(QWidget):
                 return
             extra["toby_card_idx"] = dlg2.chosen_idx
 
-        # SHARE / FRENZY: pick which card to pass
+        # SHARE / FRENZY: pick which card to pass (exclude the played card itself)
         if card.role_type in (RoleType.SHARE, RoleType.FRENZY):
             key = "share_card_idx" if card.role_type == RoleType.SHARE else "frenzy_card_idx"
             label = "Pass to left" if card.role_type == RoleType.SHARE else "Contribute to pool"
-            dlg3 = PickHandCardDialog(card.name, f"Which card to {label}?", human.hand, self)
-            if dlg3.exec() != QDialog.DialogCode.Accepted or dlg3.chosen_idx is None:
-                return
-            extra[key] = dlg3.chosen_idx
+            
+            played_idx = card_widget.index
+            other_cards = [(ri, c) for ri, c in enumerate(human.hand) if ri != played_idx]
+            
+            if not other_cards:
+                # Should not happen as you usually have cards to share, but for safety:
+                extra[key] = 0
+            else:
+                dlg3 = PickHandCardDialog(card.name, f"Which card to {label}?", [c for _, c in other_cards], self)
+                if dlg3.exec() != QDialog.DialogCode.Accepted or dlg3.chosen_idx is None:
+                    return
+                # Map dialog index → real hand index, then adjust for played card removal
+                real_idx = other_cards[dlg3.chosen_idx][0]
+                # play_card will pop played_idx first, so indices above it shift down by 1
+                extra[key] = real_idx - 1 if real_idx > played_idx else real_idx
 
         # SWAP: player picks which card to give (exclude the Swap card itself)
         if card.role_type == RoleType.SWAP and target_idx is not None:
