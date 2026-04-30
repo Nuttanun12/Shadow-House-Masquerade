@@ -1,16 +1,21 @@
 from __future__ import annotations
+import random
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QMessageBox, QDialog, QScrollArea, QGraphicsOpacityEffect
+    QFrame, QMessageBox, QDialog, QScrollArea
 )
 from PyQt6.QtGui import (
     QPixmap, QColor, QFont, QPainter, QLinearGradient, QBrush, QPen
 )
-from PyQt6.QtCore import Qt, QTimer, QRect, QPoint
+from PyQt6.QtCore import Qt, QTimer, QRect
 from game.engine import GameEngine
 from game.models import RoleType
 from ..components.card import CardWidget
+from ..components.dialogs import (
+    TobySnoopDialog, WitnessSwapDialog, PickHandCardDialog,
+    SoothsayerDialog, BabyRevealDialog
+)
 
 
 # ---------------------------------------------------------------------------
@@ -47,8 +52,8 @@ class TargetDialog(QDialog):
             if i == exclude_index:
                 continue
             parts = []
-            if player.is_handcuffed: parts.append("🔒 Cuffed")
-            if player.protected:     parts.append("🛡️ Protected")
+            if player.has_handcuffs:   parts.append("🔒 Cuffed")
+            if player.servant_protected or player.housekeeper_protected: parts.append("🛡️ Protected")
             suffix = "  [" + ", ".join(parts) + "]" if parts else ""
             btn = QPushButton(player.name + suffix)
             btn.clicked.connect(lambda _, idx=i: self._select(idx))
@@ -168,8 +173,8 @@ class PlayerPanel(QFrame):
             self.cards_row.addWidget(QLabel("+" + str(len(player.hand) - 5)))
         self.score_lbl.setText("⭐ " + str(player.score) + " pts")
         badges = []
-        if player.is_handcuffed: badges.append("🔒")
-        if player.protected:     badges.append("🛡️")
+        if player.has_handcuffs:   badges.append("🔒")
+        if player.servant_protected or player.housekeeper_protected: badges.append("🛡️")
         self.status_lbl.setText("  ".join(badges))
 
 
@@ -184,17 +189,17 @@ class DiscardPileWidget(QWidget):
     fully visible; older cards peek out behind it.
     """
 
-    FAN_OFFSET_X = 6   # horizontal shift per buried card
-    FAN_OFFSET_Y = 4   # vertical shift per buried card
+    FAN_OFFSET_X = 8   # horizontal shift per buried card
+    FAN_OFFSET_Y = 6   # vertical shift per buried card
     MAX_SHOW    = 6    # max buried cards shown
 
-    CARD_W = 110
-    CARD_H = 165
+    CARD_W = 140
+    CARD_H = 210
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._pile: list = []          # list of Card objects
-        self.setMinimumSize(220, 220)
+        self.setMinimumSize(320, 320)
 
     def set_pile(self, cards: list):
         self._pile = list(cards)
@@ -267,6 +272,18 @@ class DiscardPileWidget(QWidget):
         painter.setFont(QFont("Arial", 7, QFont.Weight.Bold))
         painter.drawText(QRect(x + 10, y + 10, w - 20, 26),
                          Qt.AlignmentFlag.AlignCenter, card.name.upper())
+
+        # Emoji
+        painter.setFont(QFont("Segoe UI Emoji", 32))
+        painter.drawText(QRect(x, y + 45, w, 70),
+                         Qt.AlignmentFlag.AlignCenter, getattr(card, "emoji", "❓"))
+
+        # Details (Description)
+        painter.setFont(QFont("Arial", 8))
+        painter.setPen(txt.lighter(130))
+        painter.drawText(QRect(x + 12, y + 120, w - 24, h - 125),
+                         Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter,
+                         getattr(card, "description", ""))
 
     def _draw_empty(self, painter: QPainter):
         w, h = self.width(), self.height()
@@ -371,7 +388,7 @@ class BoardScreen(QWidget):
         # Game log (left side)
         log_wrap = QVBoxLayout()
         log_title = QLabel("📜  Game Log")
-        log_title.setStyleSheet("color:rgba(200,180,255,0.7);font-size:10px;letter-spacing:1px;")
+        log_title.setStyleSheet("color:rgba(200,180,255,0.9);font-size:12px;font-weight:bold;letter-spacing:1px;padding-bottom:4px;")
         log_wrap.addWidget(log_title)
 
         self.log_scroll = QScrollArea()
@@ -382,9 +399,10 @@ class BoardScreen(QWidget):
         self.log_layout = QVBoxLayout(self.log_container)
         self.log_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.log_layout.setSpacing(1)
+        self.log_layout.setContentsMargins(0, 0, 0, 0)
         self.log_scroll.setWidget(self.log_container)
         log_wrap.addWidget(self.log_scroll, stretch=1)
-        middle.addLayout(log_wrap, stretch=2)
+        middle.addLayout(log_wrap, stretch=3) # Increased stretch for log area
 
         # Discard pile (right side)
         pile_wrap = QVBoxLayout()
@@ -487,10 +505,19 @@ class BoardScreen(QWidget):
 
         current = self.engine.current_player
         self.round_label.setText("Round " + str(self.engine.round_number))
-        self.turn_label.setText(
-            "⬡  Your Turn" if self.engine.current_turn_index == 0
-            else "⬡  " + current.name + "'s Turn"
-        )
+
+        if self.engine.fos_must_play and self.engine.current_turn_index == 0:
+            self.turn_label.setText("🕵️  Play 'First on Scene' to start the round!")
+            self.turn_label.setStyleSheet("color: gold; font-weight: bold;")
+        elif self.engine.fos_must_play:
+            self.turn_label.setText("🕵️  " + self.engine.current_player.name + " must play First on Scene…")
+            self.turn_label.setStyleSheet("color: #ffd080; font-weight: bold;")
+        elif self.engine.current_turn_index == 0:
+            self.turn_label.setText("⬡  Your Turn")
+            self.turn_label.setStyleSheet("color: #e0c0ff;")
+        else:
+            self.turn_label.setText("⬡  " + self.engine.current_player.name + "'s Turn")
+            self.turn_label.setStyleSheet("color: #e0c0ff;")
 
         for i, panel in self._all_panels:
             panel.refresh(self.engine.players[i], i == self.engine.current_turn_index)
@@ -499,13 +526,20 @@ class BoardScreen(QWidget):
         while self.log_layout.count():
             item = self.log_layout.takeAt(0)
             if item.widget(): item.widget().deleteLater()
-        for msg in self.engine.logs[-8:]:
+        
+        # Show more logs (last 50) and make text bigger
+        for msg in self.engine.logs[-50:]:
             lbl = QLabel(msg)
-            lbl.setStyleSheet("color:#c8c8c8;font-size:10px;padding:1px 8px;")
+            lbl.setStyleSheet("color:#e0c0ff; font-size:13px; padding:3px 10px;")
             lbl.setWordWrap(True)
             self.log_layout.addWidget(lbl)
-        self.log_scroll.verticalScrollBar().setValue(
-            self.log_scroll.verticalScrollBar().maximum())
+        
+        # Add a flexible spacer at the bottom to push logs to the top
+        self.log_layout.addStretch()
+
+        # Force scroll to bottom after layout update
+        QTimer.singleShot(50, lambda: self.log_scroll.verticalScrollBar().setValue(
+            self.log_scroll.verticalScrollBar().maximum()))
 
         # Discard pile
         self.discard_widget.set_pile(self.engine.discard_pile)
@@ -520,13 +554,6 @@ class BoardScreen(QWidget):
             cw.index = i
             cw.setFixedSize(130, 195)
             self.hand_layout.addWidget(cw)
-
-        # Pending witness dialog
-        if self._pending_witness:
-            target_name, hand = self._pending_witness
-            self._pending_witness = None
-            dlg = WitnessDialog(target_name, hand, self)
-            dlg.exec()
 
         # Game over
         if self.engine.game_over:
@@ -543,7 +570,12 @@ class BoardScreen(QWidget):
             return
 
         if self.engine.current_turn_index != 0 and not self.engine.game_over:
-            QTimer.singleShot(1400, self._ai_turn)
+            delay = random.randint(3000, 5000)
+            self.turn_label.setText(
+                "⏳  " + self.engine.current_player.name + " is thinking…"
+            )
+            self.turn_label.setStyleSheet("color: #a0a0a0; font-style: italic;")
+            QTimer.singleShot(delay, self._ai_turn)
 
     # ------------------------------------------------------------------
     # AI turn
@@ -552,7 +584,17 @@ class BoardScreen(QWidget):
     def _ai_turn(self):
         if not self.engine or self.engine.game_over: return
         if self.engine.current_turn_index == 0: return
-        self.engine.ai_play()
+        # Skip if current AI has no cards (edge case after Share/Frenzy)
+        current = self.engine.players[self.engine.current_turn_index]
+        if not current.hand:
+            self.engine.advance_turn()
+            self.refresh_board()
+            return
+        try:
+            self.engine.ai_play()
+        except Exception as e:
+            self.engine.log(f"⚠️ AI error: {e} — skipping turn.")
+            self.engine.advance_turn()
         self.refresh_board()
 
     # ------------------------------------------------------------------
@@ -562,24 +604,113 @@ class BoardScreen(QWidget):
     def card_clicked(self, card_widget):
         if not self.engine or self.engine.current_turn_index != 0:
             return
-        card = self.engine.players[0].hand[card_widget.index]
-        requires_target = card.role_type in {
-            RoleType.DETECTIVE, RoleType.TOBY, RoleType.SHERIFF, RoleType.WITNESS,
+
+        human = self.engine.players[0]
+        if card_widget.index >= len(human.hand):
+            return
+        card = human.hand[card_widget.index]
+
+        # Block non-FoS card if First on Scene must be played first
+        if self.engine.fos_must_play and card.role_type != RoleType.FIRST_ON_SCENE:
+            QMessageBox.information(self, "🕵️ First on Scene",
+                "You must play the 'First on Scene' card to open this round!\n"
+                "Click the First on Scene card in your hand.")
+            return
+
+        # Block Culprit if not last card
+        if card.role_type == RoleType.CULPRIT and len(human.hand) > 1:
+            QMessageBox.warning(self, "Cannot Play",
+                "You can only play the Culprit card when it is your LAST card!")
+            return
+
+        # Cards that need a target player
+        needs_target = card.role_type in {
+            RoleType.DETECTIVE, RoleType.TOBY, RoleType.SHERIFF,
+            RoleType.WITNESS, RoleType.ACCOMPLICE, RoleType.SWAP,
         }
         target_idx = None
-        if requires_target:
+        if needs_target:
             dlg = TargetDialog(self.engine.players, exclude_index=0, parent=self)
             if dlg.exec() != QDialog.DialogCode.Accepted or dlg.selected_index is None:
                 return
             target_idx = dlg.selected_index
 
+        extra: dict = {}
+
+        # TOBY: pick which card to reveal
+        if card.role_type == RoleType.TOBY and target_idx is not None:
+            t = self.engine.players[target_idx]
+            dlg2 = TobySnoopDialog(t.name, len(t.hand), self)
+            if dlg2.exec() != QDialog.DialogCode.Accepted or dlg2.chosen_idx is None:
+                return
+            extra["toby_card_idx"] = dlg2.chosen_idx
+
+        # SHARE / FRENZY: pick which card to pass
+        if card.role_type in (RoleType.SHARE, RoleType.FRENZY):
+            key = "share_card_idx" if card.role_type == RoleType.SHARE else "frenzy_card_idx"
+            label = "Pass to left" if card.role_type == RoleType.SHARE else "Contribute to pool"
+            dlg3 = PickHandCardDialog(card.name, f"Which card to {label}?", human.hand, self)
+            if dlg3.exec() != QDialog.DialogCode.Accepted or dlg3.chosen_idx is None:
+                return
+            extra[key] = dlg3.chosen_idx
+
+        # SWAP: player picks which card to give (exclude the Swap card itself)
+        if card.role_type == RoleType.SWAP and target_idx is not None:
+            swap_card_pos = card_widget.index   # position of Swap card in current hand
+            # Build list of (real_hand_idx, card) excluding the Swap card
+            other_cards = [(ri, c) for ri, c in enumerate(human.hand) if ri != swap_card_pos]
+            if not other_cards:
+                QMessageBox.information(self, "Swap", "No other cards to give!")
+                return
+            dlg4 = PickHandCardDialog("Swap", "Which card do YOU give?",
+                                      [c for _, c in other_cards], self)
+            if dlg4.exec() != QDialog.DialogCode.Accepted or dlg4.chosen_idx is None:
+                return
+            # Map dialog index → real hand index, then adjust for Swap card removal
+            real_idx = other_cards[dlg4.chosen_idx][0]
+            # play_card will pop swap_card_pos first, so indices above it shift down by 1
+            adjusted_idx = real_idx - 1 if real_idx > swap_card_pos else real_idx
+            extra["swap_my_idx"]    = adjusted_idx
+            extra["swap_their_idx"] = 0  # AI target picks its card automatically
+
+        # SOOTHSAYER: enter text
+        if card.role_type == RoleType.SOOTHSAYER:
+            dlg5 = SoothsayerDialog(human.name, self)
+            if dlg5.exec() != QDialog.DialogCode.Accepted:
+                return
+            extra["soothsayer_text"] = dlg5.text
+
+        # Snapshot witness target before card consumed
         witness_target = None
         if card.role_type == RoleType.WITNESS and target_idx is not None:
             witness_target = self.engine.players[target_idx]
 
-        result = self.engine.play_card(0, card_widget.index, target_idx)
+        result = self.engine.play_card(0, card_widget.index, target_idx, extra)
+
+        # WITNESS: show hand, optionally swap
         if result == "WITNESS" and witness_target is not None:
-            self._pending_witness = (witness_target.name, list(witness_target.hand))
+            wdlg = WitnessSwapDialog(
+                witness_target.name,
+                list(witness_target.hand),
+                list(human.hand),
+                self,
+            )
+            if wdlg.exec() == QDialog.DialogCode.Accepted and wdlg.do_swap:
+                self.engine.do_witness_swap(
+                    0, target_idx, wdlg.my_idx, wdlg.their_idx
+                )
+            else:
+                self.engine.advance_turn()
+
+        # BABY OF FAMILY: brief reveal
+        elif result == "BABY":
+            is_culprit = human.has_role(RoleType.CULPRIT)
+            BabyRevealDialog(is_culprit, self).exec()
+            self.engine.advance_turn()
+
+        # SOOTHSAYER: just advance
+        elif result == "SOOTHSAYER":
+            self.engine.advance_turn()
 
         self.refresh_board()
 

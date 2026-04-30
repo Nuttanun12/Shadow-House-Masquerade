@@ -145,10 +145,15 @@ class CardWidget(QWidget):
         painter.setFont(QFont("Arial", 8, QFont.Weight.Bold))
         painter.drawText(QRect(10, 10, w - 20, 28), Qt.AlignmentFlag.AlignCenter, self.card.name.upper())
 
+        # Emoji center-piece
+        emoji = getattr(self.card, "emoji", "❓")
+        painter.setFont(QFont("Segoe UI Emoji", 36)) # Use emoji-capable font
+        painter.drawText(QRect(0, 45, w, 70), Qt.AlignmentFlag.AlignCenter, emoji)
+
         # Description text
         painter.setFont(QFont("Arial", 7))
         painter.setPen(text_color.lighter(130))
-        painter.drawText(QRect(10, 46, w - 20, h - 60), Qt.TextFlag.TextWordWrap, self.card.description)
+        painter.drawText(QRect(10, 115, w - 20, h - 120), Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter, self.card.description)
 
         # Hover highlight
         if self._hover:

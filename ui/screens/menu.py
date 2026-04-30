@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QPushButton, QLabel,
-    QHBoxLayout, QLineEdit, QSpinBox, QFrame, QMessageBox
+    QHBoxLayout, QLineEdit, QSpinBox, QFrame, QMessageBox,
+    QDialog, QScrollArea
 )
 from PyQt6.QtGui import QPixmap, QFont, QPalette, QBrush, QPainter, QColor, QLinearGradient
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve
@@ -59,25 +60,10 @@ class MenuScreen(QWidget):
         panel_layout.setContentsMargins(28, 24, 28, 24)
         panel_layout.setSpacing(12)
 
-        # Player 1 name
-        p1_label = QLabel("Player 1 Name")
-        p1_label.setStyleSheet("color: #c084f5; font-weight: bold; font-size: 12px;")
-        panel_layout.addWidget(p1_label)
-
         self.p1_input = QLineEdit()
         self.p1_input.setPlaceholderText("Enter your name…")
         self.p1_input.setStyleSheet(self._input_style())
         panel_layout.addWidget(self.p1_input)
-
-        # Player 2 name (optional second human player)
-        p2_label = QLabel("Player 2 Name  (leave blank for AI)")
-        p2_label.setStyleSheet("color: #c084f5; font-weight: bold; font-size: 12px;")
-        panel_layout.addWidget(p2_label)
-
-        self.p2_input = QLineEdit()
-        self.p2_input.setPlaceholderText("Optional second player…")
-        self.p2_input.setStyleSheet(self._input_style())
-        panel_layout.addWidget(self.p2_input)
 
         # AI count
         ai_row = QHBoxLayout()
@@ -114,6 +100,14 @@ class MenuScreen(QWidget):
         start_btn.setStyleSheet(self._btn_style("#7b00bb", "#9b20db"))
         start_btn.clicked.connect(self._on_start)
         layout.addWidget(start_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        layout.addSpacing(10)
+
+        rules_btn = QPushButton("📖   HOW TO PLAY")
+        rules_btn.setFixedWidth(280)
+        rules_btn.setStyleSheet(self._btn_style("#3a0060", "#5a0090"))
+        rules_btn.clicked.connect(self._show_rules)
+        layout.addWidget(rules_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         layout.addSpacing(10)
 
@@ -177,23 +171,20 @@ class MenuScreen(QWidget):
 
     def _on_start(self):
         p1_name = self.p1_input.text().strip() or "Player 1"
-        p2_name = self.p2_input.text().strip()
         ai_count = self.ai_spinner.value()
 
         player_names = [p1_name]
-        if p2_name:
-            player_names.append(p2_name)
-            # Ensure at least 1 AI when 2 humans
-            if ai_count < 1:
-                ai_count = 1
-
         total = len(player_names) + ai_count
         if total < 3:
             QMessageBox.warning(self, "Not Enough Players",
-                                "You need at least 3 players total (humans + AI).")
+                                "You need at least 3 players total (human + AI).")
             return
 
         self.main_window.show_board(player_names, ai_count)
+
+    def _show_rules(self):
+        dlg = RulesDialog(self)
+        dlg.exec()
 
     # ------------------------------------------------------------------
     # Background
@@ -212,3 +203,100 @@ class MenuScreen(QWidget):
         grad.setColorAt(0, QColor(0, 0, 0, 140))
         grad.setColorAt(1, QColor(10, 0, 30, 200))
         painter.fillRect(self.rect(), grad)
+
+
+class RulesDialog(QDialog):
+    """Scrollable dialog showing game rules and card effects."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Shadow House: Masquerade — Rules")
+        self.setFixedSize(500, 600)
+        self.setStyleSheet("""
+            QDialog { background: #0a001a; color: white; }
+            QLabel { color: #ddd; font-size: 13px; }
+            #title { color: #ffd700; font-size: 20px; font-weight: bold; padding-bottom: 10px; }
+            #header { color: #c084f5; font-size: 16px; font-weight: bold; margin-top: 15px; }
+            #card_row { background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px; margin: 4px 0; }
+        """)
+
+        layout = QVBoxLayout(self)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("background: transparent; border: none;")
+        
+        content = QWidget()
+        content_lay = QVBoxLayout(content)
+        content_lay.setContentsMargins(20, 20, 20, 20)
+
+        # ── General Rules ──────────────────────────────────────────
+        t1 = QLabel("Welcome to the Masquerade")
+        t1.setObjectName("title")
+        content_lay.addWidget(t1)
+
+        intro = QLabel(
+            "In Shadow House: Masquerade, you are trying to find the Culprit hidden among you—or "
+            "successfully hide if you ARE the Culprit!\n\n"
+            "Each round, one player starts with the 'First on Scene' card and takes the first turn. "
+            "Play continues clockwise. The round ends when the Culprit is caught or escapes."
+        )
+        intro.setWordWrap(True)
+        content_lay.addWidget(intro)
+
+        h1 = QLabel("Victory Conditions")
+        h1.setObjectName("header")
+        content_lay.addWidget(h1)
+
+        v1 = QLabel(
+            "• ⚖️ **The Detective Wins** if they find the Culprit (using Detective or Toby cards).\n"
+            "• 💀 **The Culprit Wins** if they play the Culprit card as their VERY LAST card.\n"
+            "• 🤝 **The Accomplice Wins** if the Culprit wins."
+        )
+        v1.setWordWrap(True)
+        content_lay.addWidget(v1)
+
+        h2 = QLabel("Roles & Card Effects")
+        h2.setObjectName("header")
+        content_lay.addWidget(h2)
+
+        # Pull from metadata
+        from game.models import ROLE_METADATA
+        for role, meta in ROLE_METADATA.items():
+            name, desc, _, _, emoji = meta
+            row = QFrame()
+            row.setObjectName("card_row")
+            row_lay = QHBoxLayout(row)
+            
+            e_lbl = QLabel(emoji)
+            e_lbl.setFixedWidth(30)
+            e_lbl.setStyleSheet("font-size: 18px;")
+            
+            txt_lay = QVBoxLayout()
+            n_lbl = QLabel(name.upper())
+            n_lbl.setStyleSheet("font-weight: bold; color: #ffd700; font-size: 12px;")
+            d_lbl = QLabel(desc)
+            d_lbl.setWordWrap(True)
+            d_lbl.setStyleSheet("color: #bbb; font-size: 11px;")
+            
+            txt_lay.addWidget(n_lbl)
+            txt_lay.addWidget(d_lbl)
+            
+            row_lay.addWidget(e_lbl)
+            row_lay.addLayout(txt_lay)
+            content_lay.addWidget(row)
+
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+
+        close_btn = QPushButton("Got it!")
+        close_btn.setStyleSheet("""
+            QPushButton { 
+                background: #c084f5; color: black; font-weight: bold; 
+                padding: 10px; border-radius: 6px; margin-top: 10px;
+            }
+            QPushButton:hover { background: #d4b4ff; }
+        """)
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn)
+
